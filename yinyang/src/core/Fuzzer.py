@@ -43,7 +43,6 @@ from yinyang.src.mutators.GenTypeAwareMutation.GenTypeAwareMutation import (
     GenTypeAwareMutation
 )
 
-
 from yinyang.src.base.Utils import random_string, plain, escape
 from yinyang.src.base.Exitcodes import OK_BUGS, OK_NOBUGS, ERR_EXHAUSTED_DISK
 
@@ -87,6 +86,7 @@ class Fuzzer:
         self.first_status_bar_printed = False
         self.name = random_string()
         self.timeout_of_current_seed = 0
+        self.m = []
 
         init_logging(strategy, self.args.quiet, self.name, args)
 
@@ -100,7 +100,6 @@ class Fuzzer:
         script, glob = parse_file(seed, silent=True)
 
         if not script:
-
             # Parsing was unsuccessful.
             self.statistic.invalid_seeds += 1
             logging.debug("Skipping invalid seed: error in parsing")
@@ -153,7 +152,7 @@ class Fuzzer:
                     script, self.args, unique_expr
                 )
 
-            elif self.strategy == "opfuzz":
+            elif self.strategy == "opfuzz" or self.strategy == "krest1nka":
                 script, _ = self.get_script(seed)
                 if not script:
                     continue
@@ -193,6 +192,10 @@ class Fuzzer:
                     log_skip_seed_mutator(self.args, i)
                     break  # Continue to next seed.
 
+                if self.strategy == "krest1nka":
+                    self.m.append(copy.deepcopy(mutant))
+                    continue  # Don't test. I only need mutants muahaha
+
                 (mutate_further, scratchfile) = self.test(mutant, i + 1)
                 if not mutate_further:  # Continue to next seed.
                     log_skip_seed_test(self.args, i)
@@ -203,7 +206,11 @@ class Fuzzer:
                     os.remove(scratchfile)
 
             log_finished_generations(successful_gens, unsuccessful_gens)
-        self.terminate()
+        # self.terminate()
+
+    def get_mutants(self):
+        print("here")
+        return self.m
 
     def create_testbook(self, script):
         """
@@ -241,7 +248,7 @@ class Fuzzer:
         # For differential testing (opfuzz), the oracle is set to "unknown" and
         # gets overwritten by the result of the first solver call. For
         # metamorphic testing (yinyang) the oracle is pre-set by the cmd line.
-        if self.strategy in ["opfuzz", "typefuzz"]:
+        if self.strategy in ["opfuzz", "typefuzz", "krest1nka"]:
             oracle = SolverResult(SolverQueryResult.UNKNOWN)
         else:
             oracle = init_oracle(self.args)
@@ -317,9 +324,9 @@ class Fuzzer:
                 # Check if the stdout contains a valid solver query result,
                 # i.e., contains lines with 'sat', 'unsat' or 'unknown'.
                 if (
-                    not re.search("^unsat$", stdout, flags=re.MULTILINE)
-                    and not re.search("^sat$", stdout, flags=re.MULTILINE)
-                    and not re.search("^unknown$", stdout, flags=re.MULTILINE)
+                        not re.search("^unsat$", stdout, flags=re.MULTILINE)
+                        and not re.search("^sat$", stdout, flags=re.MULTILINE)
+                        and not re.search("^unknown$", stdout, flags=re.MULTILINE)
                 ):
                     self.statistic.invalid_mutants += 1
                     log_invalid_mutant(self.args, iteration)
@@ -335,7 +342,6 @@ class Fuzzer:
                     self.statistic.effective_calls += 1
                     result = grep_result(stdout)
                     if oracle.equals(SolverQueryResult.UNKNOWN):
-
                         # For differential testing (opfuzz), the first solver
                         # is set as the reference, its result to be the oracle.
                         oracle = result
@@ -409,15 +415,15 @@ class Fuzzer:
         return report
 
     def report_diff(
-        self,
-        script,
-        bugtype,
-        ref_cli,
-        ref_stdout,
-        ref_stderr,
-        sol_cli,
-        sol_stdout,
-        sol_stderr,
+            self,
+            script,
+            bugtype,
+            ref_cli,
+            ref_stdout,
+            ref_stderr,
+            sol_cli,
+            sol_stdout,
+            sol_stderr,
     ):
         plain_cli = plain(sol_cli)
         # format: <solver><{crash,wrong,invalid_model}><seed>.<random-str>.smt2
@@ -458,8 +464,8 @@ class Fuzzer:
         return report
 
     def print_stats(self):
-        if not self.first_status_bar_printed\
-           and time.time() - self.old_time >= 1:
+        if not self.first_status_bar_printed \
+                and time.time() - self.old_time >= 1:
             self.statistic.printbar(self.start_time)
             self.old_time = time.time()
             self.first_status_bar_printed = True
@@ -476,7 +482,7 @@ class Fuzzer:
             exit(OK_NOBUGS)
         exit(OK_BUGS)
 
-    def __del__(self):
-        for fn in os.listdir(self.args.scratchfolder):
-            if self.name in fn:
-                os.remove(os.path.join(self.args.scratchfolder, fn))
+    # def __del__(self):
+    #     for fn in os.listdir(self.args.scratchfolder):
+    #         if self.name in fn:
+    #             os.remove(os.path.join(self.args.scratchfolder, fn))
