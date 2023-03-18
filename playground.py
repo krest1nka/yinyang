@@ -62,28 +62,52 @@ mutants = fuzzer.get_mutants()
 
 #check API and CLI outputs
 
-print("API output:")
+logs = open(args.scratchfolder + "/logs.txt", "a")
 
-solver = ASTtoAPI.get_solver(mutants[0])
-print(solver.check())
-if str(solver.check()) == "sat":
-    print(solver.model())
+for mutant in mutants:
+    echo_cli = subprocess.Popen(['echo', str(mutant)], stdout=subprocess.PIPE)
+    z3_cli = subprocess.Popen(['z3', '-in'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
+    echo_cli.stdout.close()
+    output = z3_cli.communicate()[0]
+    cli_result = ""
+    if "unsat" in str(output):
+        cli_result = "unsat"
+    elif "sat" in str(output):
+        cli_result = "sat"
+
+    solver = ASTtoAPI.get_solver(mutant)
+    api_result = str(solver.check())
+
+    if cli_result != api_result:
+        logs.write("----------------------------\n")
+        logs.write(mutant)
+        logs.write("\nAPI: " + api_result + "\nCLI: " + cli_result + "\n")
+        logs.write("----------------------------\n")
 
 
-echo_cli = subprocess.Popen(['echo', str(mutants[0])], stdout=subprocess.PIPE)
-z3_cli = subprocess.Popen(['z3', '-in'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
-echo_cli.stdout.close()
-output = z3_cli.communicate()[0]
 
-print("CLI output:")
-print(output)
-cli_result = ""
-if "unsat" in str(output):
-    cli_result = "unsat"
-elif "sat" in str(output):
-    cli_result = "sat"
-
-print(cli_result == str(solver.check()))
+# print("API output:")
+#
+# solver = ASTtoAPI.get_solver(mutants[0])
+# print(solver.check())
+# if str(solver.check()) == "sat":
+#     print(solver.model())
+#
+#
+# echo_cli = subprocess.Popen(['echo', str(mutants[0])], stdout=subprocess.PIPE)
+# z3_cli = subprocess.Popen(['z3', '-in'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
+# echo_cli.stdout.close()
+# output = z3_cli.communicate()[0]
+#
+# print("CLI output:")
+# print(output)
+# cli_result = ""
+# if "unsat" in str(output):
+#     cli_result = "unsat"
+# elif "sat" in str(output):
+#     cli_result = "sat"
+#
+# print(cli_result == str(solver.check()))
 
 
 
