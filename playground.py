@@ -7,7 +7,7 @@ from pathlib import Path
 
 import z3
 
-from ASTtoAPI import ASTtoAPI
+from ASTtoAPI import ASTtoAPI, ASTtoAPIException
 
 path = Path(__file__)
 rootpath = str(path.parent.absolute().parent)
@@ -75,8 +75,12 @@ for mutant in mutants:
     elif "sat" in str(output):
         cli_result = "sat"
 
-    solver = ASTtoAPI.get_solver(mutant)
-    api_result = str(solver.check())
+    try:
+        solver = ASTtoAPI.get_solver(mutant)
+        api_result = str(solver.check())
+    except ASTtoAPIException as error:
+        logs.write(error.message)
+        continue
 
     if cli_result != api_result:
         logs.write("----------------------------\n")
@@ -84,30 +88,6 @@ for mutant in mutants:
         logs.write("\nAPI: " + api_result + "\nCLI: " + cli_result + "\n")
         logs.write("----------------------------\n")
 
-
-
-# print("API output:")
-#
-# solver = ASTtoAPI.get_solver(mutants[0])
-# print(solver.check())
-# if str(solver.check()) == "sat":
-#     print(solver.model())
-#
-#
-# echo_cli = subprocess.Popen(['echo', str(mutants[0])], stdout=subprocess.PIPE)
-# z3_cli = subprocess.Popen(['z3', '-in'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
-# echo_cli.stdout.close()
-# output = z3_cli.communicate()[0]
-#
-# print("CLI output:")
-# print(output)
-# cli_result = ""
-# if "unsat" in str(output):
-#     cli_result = "unsat"
-# elif "sat" in str(output):
-#     cli_result = "sat"
-#
-# print(cli_result == str(solver.check()))
 
 
 

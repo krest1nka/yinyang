@@ -65,7 +65,7 @@ class ASTtoAPI:
             var_type = ASTtoAPI.get_type(script.global_vars[name])
 
             if len(var_type) < 1:
-                raise Exception("Couldn't get the type of var " + name)
+                raise ASTtoAPIException("Couldn't get the type of var " + name)
 
             if len(var_type) == 1:
                 if var_type[0] in ASTtoAPI.decls:
@@ -73,7 +73,7 @@ class ASTtoAPI:
                 elif var_type[0] in custom_sorts:
                     smt_vars[name] = z3.Const(name, custom_sorts[var_type[0]])
                 else:
-                    raise Exception("Unknown declaration " + var_type[0])
+                    raise ASTtoAPIException("Unknown declaration " + var_type[0])
                 continue
 
             var_sorts = []
@@ -83,10 +83,10 @@ class ASTtoAPI:
                 elif var_type[i] in custom_sorts:
                     var_sorts.append(custom_sorts[var_type[i]])
                 else:
-                    raise Exception("Unknown sort " + var_type[i])
+                    raise ASTtoAPIException("Unknown sort " + var_type[i])
 
             if var_type[0] not in ASTtoAPI.decls:
-                raise Exception("Unknown declaration " + var_type[0])
+                raise ASTtoAPIException("Unknown declaration " + var_type[0])
 
             smt_vars[name] = ASTtoAPI.decls[var_type[0]](name, var_sorts)
         return smt_vars
@@ -95,12 +95,12 @@ class ASTtoAPI:
     def get_term(term: Term, variables: dict[str, z3.ExprRef]) -> z3.ExprRef:
         if term.is_var:
             if term.name not in variables:
-                raise Exception("Unknown variable " + term.name)
+                raise ASTtoAPIException("Unknown variable " + term.name)
             return variables[term.name]
 
         if term.is_const:
             if term.type not in ASTtoAPI.vals:
-                raise Exception("Unknown type " + term.type)
+                raise ASTtoAPIException("Unknown type " + term.type)
             return ASTtoAPI.vals[term.type](term.name)
 
         subterms = []
@@ -108,6 +108,12 @@ class ASTtoAPI:
             subterms.append(ASTtoAPI.get_term(subterm, variables))
 
         if term.op not in ASTtoAPI.ops:
-            raise Exception("Unknown operator " + term.op)
+            raise ASTtoAPIException("Unknown operator " + term.op)
 
         return ASTtoAPI.ops[term.op](subterms)
+
+
+class ASTtoAPIException(Exception):
+    def __init(self, message):
+        self.message = message
+        super.__init__(self.message)
