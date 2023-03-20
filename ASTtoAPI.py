@@ -5,8 +5,7 @@ from z3 import Solver, z3
 
 
 class ASTtoAPI:
-    # define-sort
-    # as const, define-const, declare-fun
+    # as const, declare-fun, let
 
     decls = {
         'Bool': lambda var: z3.Bool(var),
@@ -26,7 +25,31 @@ class ASTtoAPI:
         'select': lambda args: z3.Select(*args),
         'store': lambda args: z3.Store(*args),
         'distinct': lambda args: z3.Distinct(*args),
-        '=': lambda args: args[0] == args[1]
+        '=': lambda args: args[0] == args[1],
+        '+': lambda args: args[0] + args[1],
+        '-': lambda args: args[0] - args[1],
+        '*': lambda args: args[0] * args[1],
+        '>': lambda args: args[0] > args[1],
+        '>=': lambda args: args[0] >= args[1],
+        '<': lambda args: args[0] < args[1],
+        '<=': lambda args: args[0] <= args[1],
+        'bvadd': lambda args: args[0] + args[1],
+        'bvsub': lambda args: args[0] - args[1],
+        'bvneg': lambda args: -args[0],
+        'bvmul': lambda args: args[0] * args[1],
+        'bvurem': lambda args: z3.URem(args[0], args[1]),
+        'bvsrem': lambda args: z3.SRem(args[0], args[1]),
+        'bvsmod': lambda args: args[0] // args[1],  # not sure
+        'bvor': lambda args: args[0] | args[1],
+        'bvand': lambda args: args[0] & args[1],
+        'bvxor': lambda args: args[0] ^ args[1],
+        'bvnot': lambda args: ~args[0],
+        'bvnand': lambda args: ~(args[0] & args[1]),
+        'bvnor': lambda args: ~(args[0] | args[1]),
+        'bvxnor': lambda args: ~(args[0] ^ args[1]),
+        'bvshl': lambda args: args[0] << args[1],
+        'bvlshr': lambda args: z3.LShR(args[0], args[1]),
+        'bvashr': lambda args: args[0] >> args[1]
     }
 
     vals = {
@@ -103,17 +126,19 @@ class ASTtoAPI:
                 raise ASTtoAPIException("Unknown type " + term.type)
             return ASTtoAPI.vals[term.type](term.name)
 
+        if term.op not in ASTtoAPI.ops:
+            raise ASTtoAPIException("Unknown operator " + term.op)
+
         subterms = []
         for subterm in term.subterms:
             subterms.append(ASTtoAPI.get_term(subterm, variables))
-
-        if term.op not in ASTtoAPI.ops:
-            raise ASTtoAPIException("Unknown operator " + term.op)
 
         return ASTtoAPI.ops[term.op](subterms)
 
 
 class ASTtoAPIException(Exception):
+    message = None
+
     def __init(self, message):
         self.message = message
         super.__init__(self.message)
