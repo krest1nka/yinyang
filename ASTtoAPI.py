@@ -1,11 +1,10 @@
-import subprocess
-
 from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBCommand
 from z3 import Solver, z3
 
 
 class ASTtoAPI:
-    # as const, declare-fun, let, forall, extract, concat, etc.
+    # as const, declare-fun, let, forall, exists
+    # let ( ( h ( head x ) ) ( t ( tail x ) ) )
 
     decls = {
         'Bool': lambda var: z3.Bool(var),
@@ -93,7 +92,7 @@ class ASTtoAPI:
         variables = ASTtoAPI.get_declarations(script, custom_sorts)
         for command in script.commands:
             if isinstance(command, Assert):
-                solver.add(ASTtoAPI.get_term(command.term, variables))
+                solver.add(ASTtoAPI.get_term(command.term, variables, {}))
         return solver
 
     @staticmethod
@@ -145,20 +144,33 @@ class ASTtoAPI:
         return smt_vars
 
     @staticmethod
-    def get_term(term: Term, variables: dict[str, z3.ExprRef]) -> z3.ExprRef:
+    def get_term(term: Term, variables: dict[str, z3.ExprRef], let_variables: dict[str, z3.ExprRef]) -> z3.ExprRef:
         if term.is_var:
-            if term.name not in variables:
+            if term.name in variables:
+                return variables[term.name]
+            elif term.name in let_variables:
+                return let_variables[term.name]
+            else:
                 raise ASTtoAPIException("Unknown variable " + term.name)
-            return variables[term.name]
 
         if term.is_const:
             term_type = term.type
-            if 'bv' in term.name:
+            if 'bv' in term.name:  # BitVector constant
                 term_type = ASTtoAPI.parse_type_string(term.name)
                 return ASTtoAPI.vals[term_type[0]](term_type[1:])
             if term_type not in ASTtoAPI.vals:
                 raise ASTtoAPIException("Unknown type " + term_type)
             return ASTtoAPI.vals[term_type](term.name)
+
+        if term.let_terms is not None:  # the term contains let statement
+            new_let_variables = {}
+            for i in range(len(term.let_terms)):
+                new_let_variables[term.var_binders[i]] = ASTtoAPI.get_term(term.let_terms[i], variables, let_variables)
+
+            for let_var in let_variables:
+                new_let_variables[let_var] = let_variables[let_var]  # add exception
+
+            return ASTtoAPI.get_term(term.subterms[0], variables, new_let_variables)
 
         term_op = ASTtoAPI.parse_type_string(term.op)
         if term_op[0] not in ASTtoAPI.ops:
@@ -166,14 +178,13 @@ class ASTtoAPI:
 
         subterms = []
         for subterm in term.subterms:
-            subterms.append(ASTtoAPI.get_term(subterm, variables))
-            
+            subterms.append(ASTtoAPI.get_term(subterm, variables, let_variables))
+
         return ASTtoAPI.ops[term_op[0]](term_op[1:] + subterms)
 
 
 class ASTtoAPIException(Exception):
-    message = None
-
     def __init(self, message):
         self.message = message
         super.__init__(self.message)
+        z3.substitute()
