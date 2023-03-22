@@ -3,8 +3,7 @@ from z3 import Solver, z3
 
 
 class ASTtoAPI:
-    # as const, declare-fun, let, forall, exists
-    # let ( ( h ( head x ) ) ( t ( tail x ) ) )
+    # as const, declare-fun, forall, exists
 
     decls = {
         'Bool': lambda var: z3.Bool(var),
@@ -43,6 +42,8 @@ class ASTtoAPI:
         'bvurem': lambda args: z3.URem(args[0], args[1]),
         'bvsrem': lambda args: z3.SRem(args[0], args[1]),
         'bvsmod': lambda args: args[0] % args[1],
+        'bvudiv': lambda args: z3.UDiv(args[0], args[1]),
+        'bvsdiv': lambda args: args[0] / args[1],
         'bvor': lambda args: args[0] | args[1],
         'bvand': lambda args: args[0] & args[1],
         'bvxor': lambda args: args[0] ^ args[1],
