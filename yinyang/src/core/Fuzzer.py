@@ -29,6 +29,9 @@ import random
 import signal
 import logging
 import pathlib
+import subprocess
+
+from ASTtoAPI import ASTtoAPI, ASTtoAPIException
 
 from yinyang.src.core.Statistic import Statistic
 from yinyang.src.core.Solver import Solver, SolverQueryResult, SolverResult
@@ -86,7 +89,7 @@ class Fuzzer:
         self.first_status_bar_printed = False
         self.name = random_string()
         self.timeout_of_current_seed = 0
-        self.m = []
+
 
         init_logging(strategy, self.args.quiet, self.name, args)
 
@@ -193,8 +196,8 @@ class Fuzzer:
                     break  # Continue to next seed.
 
                 if self.strategy == "krest1nka":
-                    self.m.append(copy.deepcopy(mutant))
-                    continue  # Don't test. I only need mutants muahaha
+                    self.test_cli_vs_api(mutant)
+                    continue  # Continue to next mutant.
 
                 (mutate_further, scratchfile) = self.test(mutant, i + 1)
                 if not mutate_further:  # Continue to next seed.
@@ -206,11 +209,36 @@ class Fuzzer:
                     os.remove(scratchfile)
 
             log_finished_generations(successful_gens, unsuccessful_gens)
-        # self.terminate()
+        self.terminate()
 
-    def get_mutants(self):
-        print("here")
-        return self.m
+    def test_cli_vs_api(self, mutant):
+        logs = open(self.args.scratchfolder + "/logs.txt", "a")
+
+        echo_cli = subprocess.Popen(['echo', str(mutant)], stdout=subprocess.PIPE)
+        z3_cli = subprocess.Popen(['z3', '-in'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
+        echo_cli.stdout.close()
+        output = z3_cli.communicate()[0]
+        cli_result = ""
+        if "unsat" in str(output):
+            cli_result = "unsat"
+        elif "sat" in str(output):
+            cli_result = "sat"
+
+        try:
+            solver = ASTtoAPI.get_solver(mutant)
+            api_result = str(solver.check())
+        except ASTtoAPIException as error:
+            logs.write("----------------------------\n")
+            logs.write(mutant)
+            logs.write("\n" + str(error) + "\n")
+            logs.write("----------------------------\n")
+            return
+        
+        if cli_result != api_result:
+            logs.write("----------------------------\n")
+            logs.write(mutant)
+            logs.write("\nAPI: " + api_result + "\nCLI: " + cli_result + "\n")
+            logs.write("----------------------------\n")
 
     def create_testbook(self, script):
         """
