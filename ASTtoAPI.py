@@ -27,6 +27,8 @@ class ASTtoAPI:
         'distinct': lambda args: z3.Distinct(*args),
         'ite': lambda args: z3.If(*args),
         'abs': lambda args: z3.Abs(args[0]),
+        'and': lambda args: z3.And(*args),
+        'or': lambda args: z3.Or(*args),
         '=': lambda args: args[0] == args[1],
         '+': lambda args: args[0] + args[1],
         '-': lambda args: -args[0] if len(args) == 1 else args[0] - args[1],
@@ -70,7 +72,8 @@ class ASTtoAPI:
         'sign_extend': lambda args: z3.SignExt(int(args[0]), args[1]),
         'rotate-left': lambda args: z3.RotateLeft(int(args[1]), args[0]),
         'rotate-right': lambda args: z3.RotateRight(int(args[1]), args[0]),
-        'repeat': lambda args: z3.RepeatBitVec(int(args[0]), args[1])
+        'repeat': lambda args: z3.RepeatBitVec(int(args[0]), args[1]),
+        '=>': lambda args: z3.Implies(*args)
     }
 
     vals = {
@@ -188,4 +191,3 @@ class ASTtoAPIException(Exception):
     def __init(self, message):
         self.message = message
         super.__init__(self.message)
-        z3.substitute()

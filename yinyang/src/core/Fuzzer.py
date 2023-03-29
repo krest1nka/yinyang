@@ -30,6 +30,7 @@ import signal
 import logging
 import pathlib
 import subprocess
+import uuid
 
 from ASTtoAPI import ASTtoAPI, ASTtoAPIException
 
@@ -212,7 +213,9 @@ class Fuzzer:
         self.terminate()
 
     def test_cli_vs_api(self, mutant):
+        print("Test CLI vs API")
         logs = open(self.args.scratchfolder + "/logs.txt", "a")
+        elogs = open(self.args.scratchfolder + "/elogs.txt", "a")
 
         echo_cli = subprocess.Popen(['echo', str(mutant)], stdout=subprocess.PIPE)
         z3_cli = subprocess.Popen(['z3', '-in'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
@@ -229,16 +232,22 @@ class Fuzzer:
             api_result = str(solver.check())
         except ASTtoAPIException as error:
             logs.write("----------------------------\n")
-            logs.write(mutant)
+            logs.write(str(mutant))
             logs.write("\n" + str(error) + "\n")
             logs.write("----------------------------\n")
             return
-        
+        except Exception as e:
+            elogs.write("----------------------------\n")
+            elogs.write(str(mutant))
+            elogs.write("\n" + str(e) + "\n")
+            elogs.write("----------------------------\n")
+            return
+
         if cli_result != api_result:
-            logs.write("----------------------------\n")
-            logs.write(mutant)
-            logs.write("\nAPI: " + api_result + "\nCLI: " + cli_result + "\n")
-            logs.write("----------------------------\n")
+            filename = str(uuid.uuid4())
+            file = open(self.args.scratchfolder + "bugs/" + filename + ".smt2", "a")
+            file.write(str(mutant))
+            file.write("\nAPI: " + api_result + "\nCLI: " + cli_result + "\n")
 
     def create_testbook(self, script):
         """
@@ -510,7 +519,7 @@ class Fuzzer:
             exit(OK_NOBUGS)
         exit(OK_BUGS)
 
-    # def __del__(self):
-    #     for fn in os.listdir(self.args.scratchfolder):
-    #         if self.name in fn:
-    #             os.remove(os.path.join(self.args.scratchfolder, fn))
+    def __del__(self):
+        for fn in os.listdir(self.args.scratchfolder):
+            if self.name in fn:
+                os.remove(os.path.join(self.args.scratchfolder, fn))
