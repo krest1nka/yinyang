@@ -1,23 +1,23 @@
-from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBCommand
+from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBCommand, DeclareFun
 from z3 import Solver, z3
 
 
 class ASTtoAPI:
-    # as const, declare-fun, forall, exists
+    # as const, declare-fun
 
     decls = {
         'Bool': lambda var: z3.Bool(var),
         'Int': lambda var: z3.Int(var),
         'Real': lambda var: z3.Real(var),
         'Array': lambda var, args: z3.Array(var, *args),
-        'BitVec': lambda var, args: z3.BitVec(var, *args)
+        'BitVec': lambda var, args: z3.BitVec(var, z3.BitVecSort(int(args[0])))
     }
 
     sorts = {
         'Bool': lambda: z3.BoolSort(),
         'Int': lambda: z3.IntSort(),
         'Real': lambda: z3.RealSort(),
-        'BitVec': lambda val: z3.BitVecSort(val)
+        'BitVec': lambda val: z3.BitVecSort(int(val[0]))
     }
 
     ops = {
@@ -29,6 +29,7 @@ class ASTtoAPI:
         'abs': lambda args: z3.Abs(args[0]),
         'and': lambda args: z3.And(*args),
         'or': lambda args: z3.Or(*args),
+        'xor': lambda args: z3.Xor(*args),
         '=': lambda args: args[0] == args[1],
         '+': lambda args: args[0] + args[1],
         '-': lambda args: -args[0] if len(args) == 1 else args[0] - args[1],
@@ -86,14 +87,28 @@ class ASTtoAPI:
     @staticmethod
     def get_solver(script: Script) -> Solver:
         custom_sorts = {}
-
+        variables = {}
         for command in script.commands:
+            #  add custom sort
             if isinstance(command, SMTLIBCommand) and ASTtoAPI.parse_type_string(command.cmd_str)[0] == "declare-sort":
                 decl_type = ASTtoAPI.parse_type_string(command.cmd_str)
                 custom_sorts[decl_type[1]] = z3.DeclareSort(decl_type[1])
 
+            # declare non-const functions
+            elif isinstance(command, DeclareFun):
+                input_sorts = command.input_sort.split(')')[:-1]
+                input_sorts[0] = ' ' + input_sorts[0]
+                input_sorts = [ASTtoAPI.parse_type_string('(' + elem[2:] + ')') for elem in input_sorts]
+
+                output_sorts = command.output_sort.split(')')[:-1]
+                output_sorts[0] = ' ' + output_sorts[0]
+                output_sorts = [ASTtoAPI.parse_type_string('(' + elem[2:] + ')') for elem in output_sorts]
+
+                variables[command.symbol] = z3.Function(command.symbol, [ASTtoAPI.sorts[elem[0]](elem[1:]) for elem in
+                                                                          input_sorts + output_sorts])
+
         solver = Solver()
-        variables = ASTtoAPI.get_declarations(script, custom_sorts)
+        ASTtoAPI.get_declarations(script, custom_sorts, variables)
         for command in script.commands:
             if isinstance(command, Assert):
                 solver.add(ASTtoAPI.get_term(command.term, variables, {}))
@@ -113,9 +128,11 @@ class ASTtoAPI:
             return [str_decl]
 
     @staticmethod
-    def get_declarations(script: Script, custom_sorts: dict[str, z3.ExprRef]) -> dict[str, z3.ExprRef]:
-        smt_vars = {}
+    def get_declarations(script: Script, custom_sorts: dict[str, z3.ExprRef], variables: dict[str, z3.ExprRef]) -> []:
         for name in script.global_vars:
+            if name in variables:  # skip declare-fun statement
+                continue
+
             var_type = ASTtoAPI.parse_type_string(script.global_vars[name])
 
             if len(var_type) < 1:
@@ -123,9 +140,9 @@ class ASTtoAPI:
 
             if len(var_type) == 1:
                 if var_type[0] in ASTtoAPI.decls:
-                    smt_vars[name] = ASTtoAPI.decls[var_type[0]](name)
+                    variables[name] = ASTtoAPI.decls[var_type[0]](name)
                 elif var_type[0] in custom_sorts:
-                    smt_vars[name] = z3.Const(name, custom_sorts[var_type[0]])
+                    variables[name] = z3.Const(name, custom_sorts[var_type[0]])
                 else:
                     raise ASTtoAPIException("Unknown declaration " + var_type[0])
                 continue
@@ -144,8 +161,7 @@ class ASTtoAPI:
             if var_type[0] not in ASTtoAPI.decls:
                 raise ASTtoAPIException("Unknown declaration " + var_type[0])
 
-            smt_vars[name] = ASTtoAPI.decls[var_type[0]](name, var_sorts)
-        return smt_vars
+            variables[name] = ASTtoAPI.decls[var_type[0]](name, var_sorts)
 
     @staticmethod
     def get_term(term: Term, variables: dict[str, z3.ExprRef], let_variables: dict[str, z3.ExprRef]) -> z3.ExprRef:
@@ -166,6 +182,9 @@ class ASTtoAPI:
                 raise ASTtoAPIException("Unknown type " + term_type)
             return ASTtoAPI.vals[term_type](term.name)
 
+        if len(term.subterms) == 0:
+            raise ASTtoAPIException("Unknown term" + str(term))
+
         if term.let_terms is not None:  # the term contains let statement
             new_let_variables = {}
             for i in range(len(term.let_terms)):
@@ -176,9 +195,25 @@ class ASTtoAPI:
 
             return ASTtoAPI.get_term(term.subterms[0], variables, new_let_variables)
 
+        if term.quantifier == 'forall' or term.quantified_vars == 'exists':  # the term if forall or exists statement
+            forall_vars = {}
+            for i in range(len(term.quantified_vars[0])):
+                var_type = ASTtoAPI.parse_type_string(term.quantified_vars[1][i])
+                forall_vars[term.quantified_vars[0][i]] = ASTtoAPI.decls[var_type[0]](term.quantified_vars[0][i],
+                                                                                      var_type[1:])
+
+            for let_var in let_variables:
+                forall_vars[let_var] = let_variables[let_var]  # add exception
+
+            if term.quantifier == 'forall':
+                return z3.ForAll(forall_vars, ASTtoAPI.get_term(term.subterms[0], variables, forall_vars))
+
+            if term.quantifier == 'exists':
+                return z3.Exists(forall_vars, ASTtoAPI.get_term(term.subterms[0], variables, forall_vars))
+
         term_op = ASTtoAPI.parse_type_string(term.op)
         if term_op[0] not in ASTtoAPI.ops:
-            raise ASTtoAPIException("Unknown operator " + term.op)
+            raise ASTtoAPIException("Unknown operator " + str(term.op))
 
         subterms = []
         for subterm in term.subterms:
