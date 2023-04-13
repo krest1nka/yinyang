@@ -4,7 +4,6 @@ from z3 import Solver, z3
 
 class ASTtoAPI:
     # as const, declare-fun
-
     decls = {
         'Bool': lambda var: z3.Bool(var),
         'Int': lambda var: z3.Int(var),
@@ -95,7 +94,7 @@ class ASTtoAPI:
                 custom_sorts[decl_type[1]] = z3.DeclareSort(decl_type[1])
 
             # declare non-const functions
-            elif isinstance(command, DeclareFun):
+            elif isinstance(command, DeclareFun) and len(command.input_sort) > 0:
                 input_sorts = command.input_sort.split(')')[:-1]
                 input_sorts[0] = ' ' + input_sorts[0]
                 input_sorts = [ASTtoAPI.parse_type_string('(' + elem[2:] + ')') for elem in input_sorts]
@@ -105,7 +104,7 @@ class ASTtoAPI:
                 output_sorts = [ASTtoAPI.parse_type_string('(' + elem[2:] + ')') for elem in output_sorts]
 
                 variables[command.symbol] = z3.Function(command.symbol, [ASTtoAPI.sorts[elem[0]](elem[1:]) for elem in
-                                                                          input_sorts + output_sorts])
+                                                                         input_sorts + output_sorts])
 
         solver = Solver()
         ASTtoAPI.get_declarations(script, custom_sorts, variables)
@@ -206,18 +205,21 @@ class ASTtoAPI:
                 forall_vars[let_var] = let_variables[let_var]  # add exception
 
             if term.quantifier == 'forall':
-                return z3.ForAll(forall_vars, ASTtoAPI.get_term(term.subterms[0], variables, forall_vars))
+                return z3.ForAll(list(forall_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, forall_vars))
 
             if term.quantifier == 'exists':
-                return z3.Exists(forall_vars, ASTtoAPI.get_term(term.subterms[0], variables, forall_vars))
+                return z3.Exists(list(forall_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, forall_vars))
 
         term_op = ASTtoAPI.parse_type_string(term.op)
-        if term_op[0] not in ASTtoAPI.ops:
+        if str(term_op[0]) not in ASTtoAPI.ops and str(term_op[0]) not in variables:
             raise ASTtoAPIException("Unknown operator " + str(term.op))
 
         subterms = []
         for subterm in term.subterms:
             subterms.append(ASTtoAPI.get_term(subterm, variables, let_variables))
+
+        if str(term_op[0]) in variables:  # operator is declared function
+            return variables[str(term_op[0])](subterms)
 
         return ASTtoAPI.ops[term_op[0]](term_op[1:] + subterms)
 

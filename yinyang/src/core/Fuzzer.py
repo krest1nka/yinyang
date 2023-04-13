@@ -78,6 +78,16 @@ from yinyang.src.core.FuzzerUtil import (
 MAX_TIMEOUTS = 32
 
 
+class ASTTimeoutException(Exception):
+    def __init(self, message):
+        self.message = message
+        super.__init__(self.message)
+
+
+def ASTTimeoutHandler():
+    raise ASTTimeoutException("Time in API solver limit exceeded!")
+
+
 class Fuzzer:
     def __init__(self, args, strategy):
         self.args = args
@@ -90,7 +100,6 @@ class Fuzzer:
         self.first_status_bar_printed = False
         self.name = random_string()
         self.timeout_of_current_seed = 0
-
 
         init_logging(strategy, self.args.quiet, self.name, args)
 
@@ -214,27 +223,46 @@ class Fuzzer:
 
     def test_cli_vs_api(self, mutant):
         print("Test CLI vs API")
+        print(mutant)
         logs = open(self.args.scratchfolder + "/logs.txt", "a")
         elogs = open(self.args.scratchfolder + "/elogs.txt", "a")
 
         echo_cli = subprocess.Popen(['echo', str(mutant)], stdout=subprocess.PIPE)
-        z3_cli = subprocess.Popen(['z3', '-in'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
+        z3_cli = subprocess.Popen(['z3', '-in', '-T:10'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
         echo_cli.stdout.close()
         output = z3_cli.communicate()[0]
         cli_result = ""
+        print(output)
         if "unsat" in str(output):
             cli_result = "unsat"
         elif "sat" in str(output):
             cli_result = "sat"
+        elif "timeout" in str(output):
+            cli_result = "timeout"
+        else:
+            cli_result = str(output)
+
+        # Time-out for API solver
+        signal.signal(signal.SIGALRM, ASTTimeoutHandler)
+        signal.alarm(10)
 
         try:
             solver = ASTtoAPI.get_solver(mutant)
+            print("Got your solver!")
             api_result = str(solver.check())
+            print(api_result)
         except ASTtoAPIException as error:
             logs.write("----------------------------\n")
             logs.write(str(mutant))
             logs.write("\n" + str(error) + "\n")
             logs.write("----------------------------\n")
+            return
+        except ASTTimeoutException:
+            if cli_result != "timeout":
+                elogs.write("----------------------------\n")
+                elogs.write(str(mutant))
+                elogs.write("\nCLI claims " + cli_result + "API times out\n")
+                elogs.write("----------------------------\n")
             return
         except Exception as e:
             elogs.write("----------------------------\n")
@@ -242,6 +270,9 @@ class Fuzzer:
             elogs.write("\n" + str(e) + "\n")
             elogs.write("----------------------------\n")
             return
+
+        # Reset alarm back to normal
+        signal.alarm(0)
 
         if cli_result != api_result:
             filename = str(uuid.uuid4())
