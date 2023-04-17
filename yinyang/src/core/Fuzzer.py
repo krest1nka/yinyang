@@ -84,7 +84,7 @@ class ASTTimeoutException(Exception):
         super.__init__(self.message)
 
 
-def ASTTimeoutHandler():
+def ASTTimeoutHandler(signum, frame):
     raise ASTTimeoutException("Time in API solver limit exceeded!")
 
 
