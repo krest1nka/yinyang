@@ -270,15 +270,18 @@ class Fuzzer:
             elogs.write("\n" + str(e) + "\n")
             elogs.write("----------------------------\n")
             return
-
-        # Reset alarm back to normal
-        signal.alarm(0)
+        finally:
+            # Reset alarm back to normal
+            signal.alarm(0)
+            elogs.close()
+            logs.close()
 
         if cli_result != api_result:
             filename = str(uuid.uuid4())
             file = open(self.args.scratchfolder + "bugs/" + filename + ".smt2", "a")
             file.write(str(mutant))
             file.write("\nAPI: " + api_result + "\nCLI: " + cli_result + "\n")
+            file.close()
 
     def create_testbook(self, script):
         """
