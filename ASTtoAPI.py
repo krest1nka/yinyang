@@ -1,15 +1,17 @@
-from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBCommand, DeclareFun
+from yinyang.src.parsing.Ast import Script, Assert, Term, SMTLIBCommand, DeclareFun, DefineFun
 from z3 import Solver, z3
 
 
 class ASTtoAPI:
-    # as const, declare-fun
+    # fp operators, terms in declarations, RTN
+
     decls = {
         'Bool': lambda var: z3.Bool(var),
         'Int': lambda var: z3.Int(var),
         'Real': lambda var: z3.Real(var),
         'Array': lambda var, args: z3.Array(var, *args),
-        'BitVec': lambda var, args: z3.BitVec(var, args[0])
+        'BitVec': lambda var, args: z3.BitVec(var, args[0]),
+        'FloatingPoint': lambda var, args: z3.FP(var, args[0])
     }
 
     sorts = {
@@ -73,7 +75,21 @@ class ASTtoAPI:
         'rotate-left': lambda args: z3.RotateLeft(int(args[1]), args[0]),
         'rotate-right': lambda args: z3.RotateRight(int(args[1]), args[0]),
         'repeat': lambda args: z3.RepeatBitVec(int(args[0]), args[1]),
-        '=>': lambda args: z3.Implies(*args)
+        '=>': lambda args: z3.Implies(*args),
+        'fp.add': lambda args: z3.fpAdd(*args),
+        'fp.mul': lambda args: z3.fpMul(*args),
+        'fp.sub': lambda args: z3.fpSub(*args),
+        'fp.div': lambda args: z3.fpDiv(*args),
+        'fp.max': lambda args: z3.fpMax(*args),
+        'fp.min': lambda args: z3.fpMin(*args),
+        'fp.sqrt': lambda args: z3.fpSqrt(*args),
+        'fp.abs': lambda args: z3.fpAbs(*args),
+        'fp.eq': lambda args: z3.fpEQ(*args),
+        'fp.rem': lambda args: z3.fpRem(*args),
+        'fp.isNan': lambda args: z3.fpIsNaN(*args),
+        'fp.isInfinite': lambda args: z3.fpIsInf(*args),
+        'fp.isZero': lambda args: z3.fpIsZero(*args),
+        'fp': lambda args: z3.fpFP(*args)
     }
 
     vals = {
@@ -83,15 +99,39 @@ class ASTtoAPI:
         'BitVec': lambda var: z3.BitVecVal(int(var[0]), int(var[1])),
     }
 
+    RM = {
+        "RTP": lambda: z3.RTP(),
+        "RTN": lambda: z3.RTN(),
+        "RTZ": lambda: z3.RTZ(),
+        "RNA": lambda: z3.RNA(),
+        "RNE": lambda: z3.RNE(),
+        "roundNearestTiesToEven": lambda: z3.RoundNearestTiesToEven(),
+        "roundNearestTiesToAway": lambda: z3.RoundNearestTiesToAway(),
+        "roundTowardZero": lambda: z3.RoundTowardZero(),
+        "roundTowardNegative": lambda: z3.RoundTowardNegative(),
+        "roundTowardPositive": lambda: z3.RoundTowardPositive()
+    }
+
     @staticmethod
     def get_solver(script: Script) -> Solver:
         custom_sorts = {}
         variables = {}
+        solver = Solver()
+
         for command in script.commands:
             #  add custom sort
             if isinstance(command, SMTLIBCommand) and ASTtoAPI.parse_type_string(command.cmd_str)[0] == "declare-sort":
                 decl_type = ASTtoAPI.parse_type_string(command.cmd_str)
                 custom_sorts[decl_type[1]] = z3.DeclareSort(decl_type[1])
+
+            # define custom sort
+            if isinstance(command, SMTLIBCommand) and ASTtoAPI.parse_type_string(command.cmd_str)[0] == "define-sort":
+                decl_type = ASTtoAPI.parse_type_string(command.cmd_str)
+                if decl_type[1] == 'FP':
+                    custom_sorts['FP'] = z3.FPSort(int(decl_type[5]), int(decl_type[6][:-1]))
+                else:
+                    raise ASTtoAPIException("Unknown define-fun statement " + command.cmd_str)
+
 
             # declare non-const functions
             elif isinstance(command, DeclareFun) and len(command.input_sort) > 0:
@@ -105,8 +145,40 @@ class ASTtoAPI:
 
                 variables[command.symbol] = z3.Function(command.symbol, [ASTtoAPI.sorts[elem[0]](elem[1:]) for elem in
                                                                          input_sorts + output_sorts])
+            # define-fun statement
+            elif isinstance(command, DefineFun):
+                # это точно нужно будет переписать нормально
+                if len(command.sorted_vars) > 0:
+                    input_sorts = command.sorted_vars.split(')')[:-1]
+                    input_sorts[0] = ' ' + input_sorts[0]
+                    input_sorts = [elem[2:].split(' ')[1:] for elem in input_sorts]
+                    for i in range(len(input_sorts)):
+                        if input_sorts[i][0] in ASTtoAPI.sorts:
+                            input_sorts[i] = ASTtoAPI.sorts[input_sorts[i][0]]
+                        elif input_sorts[i][0] in custom_sorts:
+                            input_sorts[i] = custom_sorts[input_sorts[i][0]]
+                        else:
+                            raise ASTtoAPIException("Unknown sort " + input_sorts[i][0])
 
-        solver = Solver()
+                    output_sort = z3.BoolSort()
+
+                    variables[command.symbol] = z3.Function(command.symbol, input_sorts + [output_sort])
+                    input_vars = command.sorted_vars.split(')')[:-1]
+                    input_vars[0] = ' ' + input_vars[0]
+                    fun_vars = {}
+                    forall_vars = []
+                    for var in input_vars:
+                        fun_var = var[2:].split(' ')
+                        if fun_var[1] not in ASTtoAPI.decls and fun_var[1] not in custom_sorts:
+                            raise ASTtoAPIException("Not implemented yet " + fun_var[1])
+                        fun_vars[fun_var[0]] = ASTtoAPI.get_declaration(fun_var[0], fun_var[1], custom_sorts)
+                        forall_vars.append(fun_vars[fun_var[0]])
+
+                    solver.add(z3.ForAll(forall_vars, ASTtoAPI.get_term(command.term, fun_vars, {}, custom_sorts)))
+
+                else:
+                    variables[command.symbol] = ASTtoAPI.get_term(command.term, {}, {}, custom_sorts)
+
         ASTtoAPI.get_declarations(script, custom_sorts, variables)
         for command in script.commands:
             if isinstance(command, Assert):
@@ -154,6 +226,9 @@ class ASTtoAPI:
                     var_sorts.append(custom_sorts[var_type[i]])
                 elif var_type[0] == 'BitVec':
                     var_sorts.append(z3.BitVecSort(int(var_type[i])))
+                elif var_type[0] == 'FloatingPoint':
+                    var_sorts.append(z3.FPSort(int(var_type[i]), int(var_type[i + 1])))
+                    break
                 else:
                     raise ASTtoAPIException("Unknown sort " + var_type[i])
 
@@ -193,8 +268,50 @@ class ASTtoAPI:
 
         return ASTtoAPI.decls[var_type[0]](name, var_sorts)
 
+    # @staticmethod
+    # def get_sort(v_type: str, custom_sorts: dict[str, z3.ExprRef]) -> z3.ExprRef:
+    #     var_type = ASTtoAPI.parse_type_string(v_type)
+    #
+    #     if len(var_type) < 1:
+    #         raise ASTtoAPIException("Couldn't get the type of sort " + v_type)
+    #
+    #     if len(var_type) == 1:
+    #         if var_type[0] in ASTtoAPI.decls:
+    #             return ASTtoAPI.sorts[var_type[0]]()
+    #         elif var_type[0] in custom_sorts:
+    #             return custom_sorts[var_type[0]]
+    #         else:
+    #             raise ASTtoAPIException("Unknown sort " + v_type)
+    #
+    #     var_sorts = []
+    #     for i in range(1, len(var_type)):
+    #         if var_type[0] == 'Array' and var_type[i] in ASTtoAPI.sorts:
+    #             var_sorts.append(ASTtoAPI.sorts[var_type[i]]())
+    #         elif var_type[0] == 'Array' and var_type[i] in custom_sorts:
+    #             var_sorts.append(custom_sorts[var_type[i]])
+    #         elif var_type[0] == 'BitVec':
+    #             var_sorts.append(z3.BitVecSort(int(var_type[i])))
+    #         else:
+    #             raise ASTtoAPIException("Unknown sort " + var_type[i])
+    #
+    #     if var_type[0] not in ASTtoAPI.decls:
+    #         raise ASTtoAPIException("Unknown declaration " + var_type[0])
+    #
+    #     return ASTtoAPI.sorts[var_type[0]](var_sorts)
+
     @staticmethod
-    def get_term(term: Term, variables: dict[str, z3.ExprRef], let_variables: dict[str, z3.ExprRef], custom_sorts: dict[str, z3.ExprRef]) -> z3.ExprRef:
+    def get_term(term: Term, variables: dict[str, z3.ExprRef], let_variables: dict[str, z3.ExprRef],
+                 custom_sorts: dict[str, z3.ExprRef]) -> z3.ExprRef:
+        if str(term) in ASTtoAPI.RM:  # term is rounding mode
+            return ASTtoAPI.RM[str(term)]
+
+        if term.name is not None and term.name[0] == '#':  # const value in given numeral system
+            if term.name[1] == 'b':  # binary value
+                return z3.BitVecVal(int(term.name[2:], 2), len(term.name) - 2)
+
+            if term.name[1] == 'x':  # hexadecimal value
+                return z3.BitVecVal(int(term.name[2:], 16), (len(term.name) - 2) * 4)
+
         if term.is_var:
             if term.name in variables:
                 return variables[term.name]
@@ -218,7 +335,8 @@ class ASTtoAPI:
         if term.let_terms is not None:  # the term contains let statement
             new_let_variables = {}
             for i in range(len(term.let_terms)):
-                new_let_variables[term.var_binders[i]] = ASTtoAPI.get_term(term.let_terms[i], variables, let_variables, custom_sorts)
+                new_let_variables[term.var_binders[i]] = ASTtoAPI.get_term(term.let_terms[i], variables, let_variables,
+                                                                           custom_sorts)
 
             for let_var in let_variables:
                 new_let_variables[let_var] = let_variables[let_var]  # add exception
@@ -235,10 +353,12 @@ class ASTtoAPI:
                 forall_vars[let_var] = let_variables[let_var]  # add exception
 
             if term.quantifier == 'forall':
-                return z3.ForAll(list(forall_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, forall_vars, custom_sorts))
+                return z3.ForAll(list(forall_vars.values()),
+                                 ASTtoAPI.get_term(term.subterms[0], variables, forall_vars, custom_sorts))
 
             if term.quantifier == 'exists':
-                return z3.Exists(list(forall_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, forall_vars, custom_sorts))
+                return z3.Exists(list(forall_vars.values()),
+                                 ASTtoAPI.get_term(term.subterms[0], variables, forall_vars, custom_sorts))
 
         term_op = ASTtoAPI.parse_type_string(term.op)
         if str(term_op[0]) not in ASTtoAPI.ops and str(term_op[0]) not in variables:
