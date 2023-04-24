@@ -206,7 +206,9 @@ class Fuzzer:
                     break  # Continue to next seed.
 
                 if self.strategy == "krest1nka":
-                    self.test_cli_vs_api(mutant)
+                    # If we found one mutant per formula we don't want to process other mutant of the same formula
+                    if self.test_cli_vs_api(mutant) == 1:
+                        break
                     continue  # Continue to next mutant.
 
                 (mutate_further, scratchfile) = self.test(mutant, i + 1)
@@ -282,6 +284,9 @@ class Fuzzer:
             file.write(str(mutant))
             file.write("\nAPI: " + api_result + "\nCLI: " + cli_result + "\n")
             file.close()
+            return 1
+        else:
+            return 0
 
     def create_testbook(self, script):
         """
