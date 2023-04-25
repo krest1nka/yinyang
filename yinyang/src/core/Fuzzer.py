@@ -226,7 +226,6 @@ class Fuzzer:
     def test_cli_vs_api(self, mutant):
         print("Test CLI vs API")
         print(mutant)
-        logs = open(self.args.scratchfolder + "/logs.txt", "a")
         elogs = open(self.args.scratchfolder + "/elogs.txt", "a")
 
         echo_cli = subprocess.Popen(['echo', str(mutant)], stdout=subprocess.PIPE)
@@ -234,7 +233,8 @@ class Fuzzer:
         echo_cli.stdout.close()
         output = z3_cli.communicate()[0]
         cli_result = ""
-        print(output)
+
+        print("CLI: " + str(output))
         if "unsat" in str(output):
             cli_result = "unsat"
         elif "sat" in str(output):
@@ -249,16 +249,19 @@ class Fuzzer:
         signal.alarm(10)
 
         try:
-            solver = ASTtoAPI.get_solver(mutant)
-            print("Got your solver!")
-            api_result = str(solver.check())
-            print(api_result)
-        except ASTtoAPIException as error:
-            logs.write("----------------------------\n")
-            logs.write(str(mutant))
-            logs.write("\n" + str(error) + "\n")
-            logs.write("----------------------------\n")
-            return
+            z3_api = subprocess.check_output(['python3', '/Users/kristina/Desktop/yinyang/APItoCLIprocess.py',
+                                              self.args.scratchfolder, str(mutant)])
+            api_result = z3_api.decode("utf-8")
+            print("API: " + api_result)
+            if "unsat" in str(api_result):
+                api_result = "unsat"
+            elif "sat" in str(api_result):
+                api_result = "sat"
+            elif "exception" in str(api_result):
+                return  # subprocess finished with exception so we skip further processing of the mutant
+            else:
+                api_result = str(api_result)
+
         except ASTTimeoutException:
             if cli_result != "timeout":
                 elogs.write("----------------------------\n")
@@ -272,11 +275,6 @@ class Fuzzer:
             elogs.write("\n" + str(e) + "\n")
             elogs.write("----------------------------\n")
             return
-        finally:
-            # Reset alarm back to normal
-            signal.alarm(0)
-            elogs.close()
-            logs.close()
 
         if cli_result != api_result:
             filename = str(uuid.uuid4())
