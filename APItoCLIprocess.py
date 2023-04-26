@@ -6,10 +6,10 @@ from ASTtoAPI import ASTtoAPI, ASTtoAPIException
 from yinyang.src.parsing.Parse import parse_file
 
 args = sys.argv
-file = open(args[1] + "/mutant.smt2", "w")
+file = open(args[1] + "/api_mutant.smt2", "w")
 file.write(args[2])
 file.close()
-mutant = parse_file(args[1] + "/mutant.smt2")
+mutant = parse_file(args[1] + "/api_mutant.smt2")
 mutant = mutant[0]
 
 logs = open(args[1] + "/logs.txt", "a")

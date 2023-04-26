@@ -228,11 +228,14 @@ class Fuzzer:
         print(mutant)
         elogs = open(self.args.scratchfolder + "/elogs.txt", "a")
 
-        echo_cli = subprocess.Popen(['echo', str(mutant)], stdout=subprocess.PIPE)
-        z3_cli = subprocess.Popen(['z3', '-in', '-T:10'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
-        echo_cli.stdout.close()
-        output = z3_cli.communicate()[0]
+        file = open(self.args.scratchfolder + "/cli_mutant.smt2", "w")
+        file.write(str(mutant))
+        file.close()
+
+        z3_cli = subprocess.check_output(['z3', '-T:10', self.args.scratchfolder + "/cli_mutant.smt2"])
+        output = z3_cli.decode("utf-8")
         cli_result = ""
+        print(output)
 
         print("CLI: " + str(output))
         if "unsat" in str(output):
