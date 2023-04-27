@@ -264,19 +264,22 @@ class ASTtoAPI:
             return ASTtoAPI.get_term(term.subterms[0], variables, new_let_variables, custom_sorts)
 
         if term.quantifier == 'forall' or term.quantifier == 'exists':  # the term if forall or exists statement
-            forall_vars = {}
+            quantifier_vars = {}
             for i in range(len(term.quantified_vars[0])):
-                forall_vars[term.quantified_vars[0][i]] = \
+                quantifier_vars[term.quantified_vars[0][i]] = \
                     ASTtoAPI.get_declaration(term.quantified_vars[0][i], term.quantified_vars[1][i], custom_sorts)
 
+            new_let_vars = {}
             for let_var in let_variables:
-                forall_vars[let_var] = let_variables[let_var]  # add exception
+                new_let_vars[let_var] = let_variables[let_var]
+            for q_var in quantifier_vars:
+                new_let_vars[q_var] = quantifier_vars[q_var]
 
             if term.quantifier == 'forall':
-                return z3.ForAll(list(forall_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, forall_vars, custom_sorts))
+                return z3.ForAll(list(quantifier_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, new_let_vars, custom_sorts))
 
             if term.quantifier == 'exists':
-                return z3.Exists(list(forall_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, forall_vars, custom_sorts))
+                return z3.Exists(list(quantifier_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, new_let_vars, custom_sorts))
 
         term_op = ASTtoAPI.parse_type_string(term.op)
         if str(term_op[0]) not in ASTtoAPI.ops and str(term_op[0]) not in variables:
