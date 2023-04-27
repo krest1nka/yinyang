@@ -95,16 +95,25 @@ class ASTtoAPI:
 
             # declare non-const functions
             elif isinstance(command, DeclareFun) and len(command.input_sort) > 0:
-                input_sorts = command.input_sort.split(')')[:-1]
-                input_sorts[0] = ' ' + input_sorts[0]
-                input_sorts = [ASTtoAPI.parse_type_string('(' + elem[2:] + ')') for elem in input_sorts]
+                input_sorts = ASTtoAPI.parse_sort_string(command.input_sort)
+                input_sorts = [ASTtoAPI.parse_type_string(elem) for elem in input_sorts]
 
-                output_sorts = command.output_sort.split(')')[:-1]
-                output_sorts[0] = ' ' + output_sorts[0]
-                output_sorts = [ASTtoAPI.parse_type_string('(' + elem[2:] + ')') for elem in output_sorts]
+                output_sorts = ASTtoAPI.parse_sort_string(command.output_sort)
+                output_sorts = [ASTtoAPI.parse_type_string(elem) for elem in output_sorts]
 
-                variables[command.symbol] = z3.Function(command.symbol, [ASTtoAPI.sorts[elem[0]](elem[1:]) for elem in
-                                                                         input_sorts + output_sorts])
+                sorts = []
+                for sort in input_sorts + output_sorts:
+                    if sort[0] in ASTtoAPI.sorts:
+                        if len(sort) == 1:
+                            sorts.append(ASTtoAPI.sorts[sort[0]]())
+                        else:
+                            sorts.append(ASTtoAPI.sorts[sort[0]](sort[1:]))
+                    elif sort[0] in custom_sorts:
+                        sorts.append(custom_sorts[sort[0]])
+                    else:
+                        raise ASTtoAPIException("Unknown sort " + str(sort))
+
+                variables[command.symbol] = z3.Function(command.symbol, sorts)
 
         solver = Solver()
         ASTtoAPI.get_declarations(script, custom_sorts, variables)
@@ -112,6 +121,35 @@ class ASTtoAPI:
             if isinstance(command, Assert):
                 solver.add(ASTtoAPI.get_term(command.term, variables, {}, custom_sorts))
         return solver
+
+    @staticmethod
+    def parse_sort_string(sort: str) -> list:
+        sort += ' '
+        bal = 0
+        ind = -1
+        res = []
+        for i in range(len(sort)):
+            if sort[i] == '(' and bal > 0:
+                bal += 1
+            elif sort[i] == '(' and bal == 0:
+                bal += 1
+                ind = i
+            elif sort[i] == ')' and bal == 1:
+                subsort = sort[ind:i + 1]
+                if '(' in subsort[ind + 1:i] or ')' in subsort[ind + 1:i]:
+                    raise Exception("Unknown sort " + sort)
+                res.append(subsort)
+                bal -= 1
+            elif sort[i] == ')' and bal > 1:
+                bal -= 1
+            elif bal == 0 and ((i == 0 and sort[i] != ' ') or (i != 0 and sort[i - 1] == ' ' and sort[i] not in ['(', ')', ' '])):
+                ind = i
+            elif bal == 0 and ((i == 0 and sort[i] == ' ') or (i != 0 and sort[i - 1] not in ['(', ')', ' '] and sort[i] == ' ')):
+                subsort = sort[ind:i]
+                res.append(subsort)
+            else:
+                continue
+        return res
 
     @staticmethod
     def parse_type_string(decl: str) -> list[str]:
