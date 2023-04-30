@@ -1,4 +1,4 @@
-from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBCommand, DeclareFun
+from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBCommand, DeclareFun, DefineFun
 from z3 import Solver, z3
 
 
@@ -93,6 +93,11 @@ class ASTtoAPI:
                 decl_type = ASTtoAPI.parse_type_string(command.cmd_str)
                 custom_sorts[decl_type[1]] = z3.DeclareSort(decl_type[1])
 
+            # declare const functions
+            elif isinstance(command, DeclareFun) and len(command.input_sort) == 0:
+                variables[command.symbol] = ASTtoAPI.get_declaration(command.symbol, command.output_sort, custom_sorts)
+
+
             # declare non-const functions
             elif isinstance(command, DeclareFun) and len(command.input_sort) > 0:
                 input_sorts = ASTtoAPI.parse_sort_string(command.input_sort)
@@ -114,6 +119,13 @@ class ASTtoAPI:
                         raise ASTtoAPIException("Unknown sort " + str(sort))
 
                 variables[command.symbol] = z3.Function(command.symbol, sorts)
+
+            elif isinstance(command, DefineFun):
+                if command.sorted_vars != '':
+                    raise ASTtoAPIException("Unsupported type of define-fun")
+
+                variables[command.symbol] = ASTtoAPI.get_term(command.term, variables, {}, custom_sorts)
+
 
         solver = Solver()
         ASTtoAPI.get_declarations(script, custom_sorts, variables)
