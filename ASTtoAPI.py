@@ -2,6 +2,12 @@ from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBComma
 from z3 import Solver, z3
 
 
+def operator_fun(fun, args, init):
+    if len(args) == 0:
+        return init
+    return operator_fun(fun, args[1:], fun(init, args[0]))
+
+
 class ASTtoAPI:
     # as const, declare-fun
     decls = {
@@ -37,7 +43,7 @@ class ASTtoAPI:
         '>=': lambda args: args[0] >= args[1],
         '<': lambda args: args[0] < args[1],
         '<=': lambda args: args[0] <= args[1],
-        'bvadd': lambda args: args[0] + args[1],
+        'bvadd': lambda args: operator_fun(lambda a, b: a + b, args, 0),
         'bvsub': lambda args: args[0] - args[1],
         'bvneg': lambda args: -args[0],
         'bvmul': lambda args: args[0] * args[1],
@@ -126,7 +132,6 @@ class ASTtoAPI:
 
                 variables[command.symbol] = ASTtoAPI.get_term(command.term, variables, {}, custom_sorts)
 
-
         solver = Solver()
         ASTtoAPI.get_declarations(script, custom_sorts, variables)
         for command in script.commands:
@@ -154,9 +159,11 @@ class ASTtoAPI:
                 bal -= 1
             elif sort[i] == ')' and bal > 1:
                 bal -= 1
-            elif bal == 0 and ((i == 0 and sort[i] != ' ') or (i != 0 and sort[i - 1] == ' ' and sort[i] not in ['(', ')', ' '])):
+            elif bal == 0 and (
+                    (i == 0 and sort[i] != ' ') or (i != 0 and sort[i - 1] == ' ' and sort[i] not in ['(', ')', ' '])):
                 ind = i
-            elif bal == 0 and ((i == 0 and sort[i] == ' ') or (i != 0 and sort[i - 1] not in ['(', ')', ' '] and sort[i] == ' ')):
+            elif bal == 0 and (
+                    (i == 0 and sort[i] == ' ') or (i != 0 and sort[i - 1] not in ['(', ')', ' '] and sort[i] == ' ')):
                 subsort = sort[ind:i]
                 res.append(subsort)
             else:
@@ -244,7 +251,8 @@ class ASTtoAPI:
         return ASTtoAPI.decls[var_type[0]](name, var_sorts)
 
     @staticmethod
-    def get_term(term: Term, variables: dict[str, z3.ExprRef], let_variables: dict[str, z3.ExprRef], custom_sorts: dict[str, z3.ExprRef]) -> z3.ExprRef:
+    def get_term(term: Term, variables: dict[str, z3.ExprRef], let_variables: dict[str, z3.ExprRef],
+                 custom_sorts: dict[str, z3.ExprRef]) -> z3.ExprRef:
         if term.is_var:
             if term.name in variables:
                 return variables[term.name]
@@ -268,7 +276,8 @@ class ASTtoAPI:
         if term.let_terms is not None:  # the term contains let statement
             new_let_variables = {}
             for i in range(len(term.let_terms)):
-                new_let_variables[term.var_binders[i]] = ASTtoAPI.get_term(term.let_terms[i], variables, let_variables, custom_sorts)
+                new_let_variables[term.var_binders[i]] = ASTtoAPI.get_term(term.let_terms[i], variables, let_variables,
+                                                                           custom_sorts)
 
             for let_var in let_variables:
                 new_let_variables[let_var] = let_variables[let_var]  # add exception
@@ -288,10 +297,12 @@ class ASTtoAPI:
                 new_let_vars[q_var] = quantifier_vars[q_var]
 
             if term.quantifier == 'forall':
-                return z3.ForAll(list(quantifier_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, new_let_vars, custom_sorts))
+                return z3.ForAll(list(quantifier_vars.values()),
+                                 ASTtoAPI.get_term(term.subterms[0], variables, new_let_vars, custom_sorts))
 
             if term.quantifier == 'exists':
-                return z3.Exists(list(quantifier_vars.values()), ASTtoAPI.get_term(term.subterms[0], variables, new_let_vars, custom_sorts))
+                return z3.Exists(list(quantifier_vars.values()),
+                                 ASTtoAPI.get_term(term.subterms[0], variables, new_let_vars, custom_sorts))
 
         term_op = ASTtoAPI.parse_type_string(term.op)
         if str(term_op[0]) not in ASTtoAPI.ops and str(term_op[0]) not in variables:
