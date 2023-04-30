@@ -77,7 +77,7 @@ class ASTtoAPI:
     }
 
     vals = {
-        'Bool': lambda var: z3.Bool(False) if 'false' in var[0].lower() or '0' in var[0] else z3.Bool(True),
+        'Bool': lambda var: z3.BoolVal(False) if 'false' in var[0].lower() or '0' in var[0] else z3.BoolVal(True),
         'Int': lambda var: z3.IntVal(var[0]),
         'Real': lambda var: z3.RealVar(var[0]),
         'BitVec': lambda var: z3.BitVecVal(int(var[0]), int(var[1])),
