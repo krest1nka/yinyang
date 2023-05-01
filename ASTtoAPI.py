@@ -1,5 +1,5 @@
-from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBCommand, DeclareFun, DefineFun
-from z3 import Solver, z3
+from yinyang.src.parsing.Ast import Script, Assert, Term, Push, Pop, SMTLIBCommand, DeclareFun, DefineFun, DeclareConst
+from z3 import Solver, z3, DeclareSort
 
 
 def operator_fun(fun, args, init):
@@ -99,10 +99,13 @@ class ASTtoAPI:
                 decl_type = ASTtoAPI.parse_type_string(command.cmd_str)
                 custom_sorts[decl_type[1]] = z3.DeclareSort(decl_type[1])
 
+            # declare-const
+            elif isinstance(command, DeclareConst):
+                variables[command.symbol] = ASTtoAPI.get_declaration(command.symbol, command.sort, custom_sorts)
+
             # declare const functions
             elif isinstance(command, DeclareFun) and len(command.input_sort) == 0:
                 variables[command.symbol] = ASTtoAPI.get_declaration(command.symbol, command.output_sort, custom_sorts)
-
 
             # declare non-const functions
             elif isinstance(command, DeclareFun) and len(command.input_sort) > 0:
