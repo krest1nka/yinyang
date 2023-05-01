@@ -228,11 +228,11 @@ class Fuzzer:
         print(mutant)
         elogs = open(self.args.scratchfolder + "/elogs.txt", "a")
 
-        file = open(self.args.scratchfolder + "/cli_mutant.smt2", "w")
+        file = open(self.args.scratchfolder + "/mutant.smt2", "w")
         file.write(str(mutant))
         file.close()
 
-        z3_cli = subprocess.check_output(['z3', '-T:10', self.args.scratchfolder + "/cli_mutant.smt2"])
+        z3_cli = subprocess.check_output(['z3', '-T:10', self.args.scratchfolder + "/mutant.smt2"])
         output = z3_cli.decode("utf-8")
         cli_result = ""
         print(output)
@@ -253,7 +253,7 @@ class Fuzzer:
 
         try:
             z3_api = subprocess.check_output(['python3', '/Users/kristina/Desktop/yinyang/APItoCLIprocess.py',
-                                              self.args.scratchfolder, str(mutant)])
+                                              self.args.scratchfolder])
             api_result = z3_api.decode("utf-8")
             print("API: " + api_result)
             if "unsat" in str(api_result):
@@ -261,7 +261,7 @@ class Fuzzer:
             elif "sat" in str(api_result):
                 api_result = "sat"
             elif "exception" in str(api_result):
-                return  # subprocess finished with exception so we skip further processing of the mutant
+                return 0  # subprocess finished with exception so we skip further processing of the mutant
             else:
                 api_result = str(api_result)
 
@@ -271,13 +271,15 @@ class Fuzzer:
                 elogs.write(str(mutant))
                 elogs.write("\nCLI claims " + cli_result + "API times out\n")
                 elogs.write("----------------------------\n")
-            return
+            return 0
         except Exception as e:
             elogs.write("----------------------------\n")
             elogs.write(str(mutant))
             elogs.write("\n" + str(e) + "\n")
             elogs.write("----------------------------\n")
-            return
+            return 0
+        finally:
+            signal.alarm(0)
 
         if cli_result != api_result:
             filename = str(uuid.uuid4())
