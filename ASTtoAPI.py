@@ -8,6 +8,15 @@ def operator_fun(fun, args, init):
     return operator_fun(fun, args[1:], fun(init, args[0]))
 
 
+def bool_val(val):
+    if 'false' in val.lower() or '0' in val:
+        return z3.BoolVal(False)
+    elif 'true' in val.lower() or '1' in val:
+        return z3.BoolVal(True)
+    else:
+        raise ASTtoAPIException("unknown Bool " + val)
+
+
 class ASTtoAPI:
     # as const, declare-fun
     decls = {
@@ -83,7 +92,7 @@ class ASTtoAPI:
     }
 
     vals = {
-        'Bool': lambda var: z3.BoolVal(False) if 'false' in var[0].lower() or '0' in var[0] else z3.BoolVal(True),
+        'Bool': lambda var: bool_val(var[0]),
         'Int': lambda var: z3.IntVal(var[0]),
         'Real': lambda var: z3.RealVar(var[0]),
         'BitVec': lambda var: z3.BitVecVal(int(var[0]), int(var[1])),
@@ -271,7 +280,7 @@ class ASTtoAPI:
                 return ASTtoAPI.vals[term_type[0]](term_type[1:])
             if term_type not in ASTtoAPI.vals:
                 raise ASTtoAPIException("Unknown type " + term_type)
-            return ASTtoAPI.vals[term_type](term.name)
+            return ASTtoAPI.vals[term_type]([term.name])
 
         if len(term.subterms) == 0:
             raise ASTtoAPIException("Unknown term" + str(term))
