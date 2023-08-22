@@ -1,6 +1,7 @@
 import sys
 import subprocess
 import tempfile
+import traceback
 
 from ASTtoAPI import ASTtoAPI, ASTtoAPIException
 from yinyang.src.parsing.Parse import parse_file

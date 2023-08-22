@@ -32,6 +32,8 @@ import pathlib
 import subprocess
 import uuid
 
+import z3
+
 from ASTtoAPI import ASTtoAPI, ASTtoAPIException
 
 from yinyang.src.core.Statistic import Statistic
@@ -206,6 +208,7 @@ class Fuzzer:
                     break  # Continue to next seed.
 
                 if self.strategy == "krest1nka":
+                    print(seed)
                     # If we found one mutant per formula we don't want to process other mutant of the same formula
                     if self.test_cli_vs_api(mutant) == 1:
                         break
@@ -224,19 +227,19 @@ class Fuzzer:
         self.terminate()
 
     def test_cli_vs_api(self, mutant):
-        print("Test CLI vs API")
         print(mutant)
-        elogs = open(self.args.scratchfolder + "/elogs.txt", "a")
+        cli_logs = open(self.args.scratchfolder + "/cli_logs.txt", "a")
 
         file = open(self.args.scratchfolder + "/mutant.smt2", "w")
         file.write(str(mutant))
         file.close()
-
-        z3_cli = subprocess.check_output(['z3', '-T:10', self.args.scratchfolder + "/mutant.smt2"])
+        try:
+            z3_cli = subprocess.check_output(['z3', '-T:10', self.args.scratchfolder + "/mutant.smt2"])
+        except Exception as e:
+            print(e)
+            return 0
         output = z3_cli.decode("utf-8")
         cli_result = ""
-        print(output)
-
         print("CLI: " + str(output))
         if "unsat" in str(output):
             cli_result = "unsat"
@@ -250,12 +253,11 @@ class Fuzzer:
         # Time-out for API solver
         signal.signal(signal.SIGALRM, ASTTimeoutHandler)
         signal.alarm(10)
-
+        api_result = "hehe"
         try:
             z3_api = subprocess.check_output(['python3', '/Users/kristina/Desktop/yinyang/APItoCLIprocess.py',
                                               self.args.scratchfolder])
             api_result = z3_api.decode("utf-8")
-            print("API: " + api_result)
             if "unsat" in str(api_result):
                 api_result = "unsat"
             elif "sat" in str(api_result):
@@ -266,22 +268,20 @@ class Fuzzer:
                 api_result = str(api_result)
 
         except ASTTimeoutException:
-            if cli_result != "timeout":
-                elogs.write("----------------------------\n")
-                elogs.write(str(mutant))
-                elogs.write("\nCLI claims " + cli_result + "API times out\n")
-                elogs.write("----------------------------\n")
-            return 0
+            if cli_result == "timeout":
+                return 0
+            api_result = "timeout"
         except Exception as e:
-            elogs.write("----------------------------\n")
-            elogs.write(str(mutant))
-            elogs.write("\n" + str(e) + "\n")
-            elogs.write("----------------------------\n")
+            cli_logs.write("----------------------------\n")
+            cli_logs.write(str(mutant))
+            cli_logs.write("\n" + str(e) + "\n")
+            cli_logs.write("----------------------------\n")
             return 0
         finally:
+            print("API: " + api_result)
             signal.alarm(0)
 
-        if cli_result != api_result:
+        if (cli_result == "sat" and api_result == "unsat") or (cli_result == "unsat" and api_result == "sat"):
             filename = str(uuid.uuid4())
             file = open(self.args.scratchfolder + "bugs/" + filename + ".smt2", "a")
             file.write(str(mutant))

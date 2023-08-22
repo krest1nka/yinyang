@@ -33,7 +33,8 @@ class ASTtoAPI:
         'Int': lambda: z3.IntSort(),
         'Real': lambda: z3.RealSort(),
         'BitVec': lambda val: z3.BitVecSort(int(val[0])),
-        'FloatingPoint': lambda val: z3.FPSort(int(val[0]), int(val[1]))
+        'FloatingPoint': lambda val: z3.FPSort(int(val[0]), int(val[1])),
+        'NaN': lambda val: z3.fpNaN(z3.FPSort(int(val[0]), int(val[1])))
     }
 
     ops = {
@@ -89,6 +90,8 @@ class ASTtoAPI:
         'sign_extend': lambda args: z3.SignExt(int(args[0]), args[1]),
         'rotate-left': lambda args: z3.RotateLeft(int(args[1]), args[0]),
         'rotate-right': lambda args: z3.RotateRight(int(args[1]), args[0]),
+        'rotate_left': lambda args: z3.RotateLeft(int(args[1]), args[0]),
+        'rotate_right': lambda args: z3.RotateRight(int(args[1]), args[0]),
         'repeat': lambda args: z3.RepeatBitVec(int(args[0]), args[1]),
         '=>': lambda args: z3.Implies(*args),
         'fp.add': lambda args: z3.fpAdd(*args),
@@ -115,7 +118,8 @@ class ASTtoAPI:
         'fp.gt': lambda args: z3.fpGT(*args),
         'fp.geq': lambda args: z3.fpGEQ(*args),
         'fp.roundToIntegral': lambda args: z3.fpRoundToIntegral(*args),
-        'fp.neg': lambda args: z3.fpNeg(*args)
+        'fp.neg': lambda args: z3.fpNeg(*args),
+        'fp.fma': lambda args: z3.fpFMA(*args)
     }
 
     vals = {
@@ -361,6 +365,11 @@ class ASTtoAPI:
         if str(term) in ASTtoAPI.RM:  # term is rounding mode
             return ASTtoAPI.RM[str(term)]()
 
+        if type(term).__name__ == 'str':
+            op = ASTtoAPI.parse_type_string(term)
+            if 'NaN' in op:
+                return z3.fpNaN(z3.FPSort(int(op[1]), int(op[2])))
+
         if term.name is not None and term.name[0] == '#':  # const value in given numeral system
             if term.name[1] == 'b':  # binary value
                 return z3.BitVecVal(int(term.name[2:], 2), len(term.name) - 2)
@@ -383,7 +392,7 @@ class ASTtoAPI:
                 return ASTtoAPI.vals[term_type[0]](term_type[1:])
             if term_type not in ASTtoAPI.vals:
                 raise ASTtoAPIException("Unknown type " + term_type)
-            return ASTtoAPI.vals[term_type](term.name)
+            return ASTtoAPI.vals[term_type]([term.name])
 
         if len(term.subterms) == 0:
             raise ASTtoAPIException("Unknown term" + str(term))
