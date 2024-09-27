@@ -1,0 +1,1 @@
+(declare-sort a 0)

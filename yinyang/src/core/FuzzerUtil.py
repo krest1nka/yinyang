@@ -19,9 +19,11 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import os
 import random
 import re
 import pathlib
+import sys
 
 from yinyang.src.base.Utils import in_list
 
@@ -80,7 +82,7 @@ def get_seeds(args, strategy):
         gen = get_permutation_generator(initial_seeds)
         return gen, num_initial**2
     else:
-        assert strategy in ["opfuzz", "typefuzz"]
+        assert strategy in ["opfuzz", "typefuzz", "krest1nka"]
         return initial_seeds, num_initial
 
 

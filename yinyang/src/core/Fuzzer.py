@@ -29,6 +29,10 @@ import random
 import signal
 import logging
 import pathlib
+import subprocess
+import uuid
+
+from ASTtoAPI import ASTtoAPI, ASTtoAPIException
 
 from yinyang.src.core.Statistic import Statistic
 from yinyang.src.core.Solver import Solver, SolverQueryResult, SolverResult
@@ -42,7 +46,6 @@ from yinyang.src.mutators.GenTypeAwareMutation.Util import get_unique_subterms
 from yinyang.src.mutators.GenTypeAwareMutation.GenTypeAwareMutation import (
     GenTypeAwareMutation
 )
-
 
 from yinyang.src.base.Utils import random_string, plain, escape
 from yinyang.src.base.Exitcodes import OK_BUGS, OK_NOBUGS, ERR_EXHAUSTED_DISK
@@ -75,6 +78,16 @@ from yinyang.src.core.FuzzerUtil import (
 MAX_TIMEOUTS = 32
 
 
+class ASTTimeoutException(Exception):
+    def __init(self, message):
+        self.message = message
+        super.__init__(self.message)
+
+
+def ASTTimeoutHandler(signum, frame):
+    raise ASTTimeoutException("Time in API solver limit exceeded!")
+
+
 class Fuzzer:
     def __init__(self, args, strategy):
         self.args = args
@@ -100,7 +113,6 @@ class Fuzzer:
         script, glob = parse_file(seed, silent=True)
 
         if not script:
-
             # Parsing was unsuccessful.
             self.statistic.invalid_seeds += 1
             logging.debug("Skipping invalid seed: error in parsing")
@@ -153,7 +165,7 @@ class Fuzzer:
                     script, self.args, unique_expr
                 )
 
-            elif self.strategy == "opfuzz":
+            elif self.strategy == "opfuzz" or self.strategy == "krest1nka":
                 script, _ = self.get_script(seed)
                 if not script:
                     continue
@@ -193,6 +205,12 @@ class Fuzzer:
                     log_skip_seed_mutator(self.args, i)
                     break  # Continue to next seed.
 
+                if self.strategy == "krest1nka":
+                    # If we found one mutant per formula we don't want to process other mutant of the same formula
+                    if self.test_cli_vs_api(mutant) == 1:
+                        break
+                    continue  # Continue to next mutant.
+
                 (mutate_further, scratchfile) = self.test(mutant, i + 1)
                 if not mutate_further:  # Continue to next seed.
                     log_skip_seed_test(self.args, i)
@@ -204,6 +222,71 @@ class Fuzzer:
 
             log_finished_generations(successful_gens, unsuccessful_gens)
         self.terminate()
+
+    def test_cli_vs_api(self, mutant):
+        print("Test CLI vs API")
+        print(mutant)
+        logs = open(self.args.scratchfolder + "/logs.txt", "a")
+        elogs = open(self.args.scratchfolder + "/elogs.txt", "a")
+
+        echo_cli = subprocess.Popen(['echo', str(mutant)], stdout=subprocess.PIPE)
+        z3_cli = subprocess.Popen(['z3', '-in', '-T:10'], stdin=echo_cli.stdout, stdout=subprocess.PIPE)
+        echo_cli.stdout.close()
+        output = z3_cli.communicate()[0]
+        cli_result = ""
+        print(output)
+        if "unsat" in str(output):
+            cli_result = "unsat"
+        elif "sat" in str(output):
+            cli_result = "sat"
+        elif "timeout" in str(output):
+            cli_result = "timeout"
+        else:
+            cli_result = str(output)
+
+        # Time-out for API solver
+        signal.signal(signal.SIGALRM, ASTTimeoutHandler)
+        signal.alarm(10)
+
+        try:
+            solver = ASTtoAPI.get_solver(mutant)
+            print("Got your solver!")
+            api_result = str(solver.check())
+            print(api_result)
+        except ASTtoAPIException as error:
+            logs.write("----------------------------\n")
+            logs.write(str(mutant))
+            logs.write("\n" + str(error) + "\n")
+            logs.write("----------------------------\n")
+            return
+        except ASTTimeoutException:
+            if cli_result != "timeout":
+                elogs.write("----------------------------\n")
+                elogs.write(str(mutant))
+                elogs.write("\nCLI claims " + cli_result + "API times out\n")
+                elogs.write("----------------------------\n")
+            return
+        except Exception as e:
+            elogs.write("----------------------------\n")
+            elogs.write(str(mutant))
+            elogs.write("\n" + str(e) + "\n")
+            elogs.write("----------------------------\n")
+            return
+        finally:
+            # Reset alarm back to normal
+            signal.alarm(0)
+            elogs.close()
+            logs.close()
+
+        if cli_result != api_result:
+            filename = str(uuid.uuid4())
+            file = open(self.args.scratchfolder + "bugs/" + filename + ".smt2", "a")
+            file.write(str(mutant))
+            file.write("\nAPI: " + api_result + "\nCLI: " + cli_result + "\n")
+            file.close()
+            return 1
+        else:
+            return 0
 
     def create_testbook(self, script):
         """
@@ -241,7 +324,7 @@ class Fuzzer:
         # For differential testing (opfuzz), the oracle is set to "unknown" and
         # gets overwritten by the result of the first solver call. For
         # metamorphic testing (yinyang) the oracle is pre-set by the cmd line.
-        if self.strategy in ["opfuzz", "typefuzz"]:
+        if self.strategy in ["opfuzz", "typefuzz", "krest1nka"]:
             oracle = SolverResult(SolverQueryResult.UNKNOWN)
         else:
             oracle = init_oracle(self.args)
@@ -317,9 +400,9 @@ class Fuzzer:
                 # Check if the stdout contains a valid solver query result,
                 # i.e., contains lines with 'sat', 'unsat' or 'unknown'.
                 if (
-                    not re.search("^unsat$", stdout, flags=re.MULTILINE)
-                    and not re.search("^sat$", stdout, flags=re.MULTILINE)
-                    and not re.search("^unknown$", stdout, flags=re.MULTILINE)
+                        not re.search("^unsat$", stdout, flags=re.MULTILINE)
+                        and not re.search("^sat$", stdout, flags=re.MULTILINE)
+                        and not re.search("^unknown$", stdout, flags=re.MULTILINE)
                 ):
                     self.statistic.invalid_mutants += 1
                     log_invalid_mutant(self.args, iteration)
@@ -335,7 +418,6 @@ class Fuzzer:
                     self.statistic.effective_calls += 1
                     result = grep_result(stdout)
                     if oracle.equals(SolverQueryResult.UNKNOWN):
-
                         # For differential testing (opfuzz), the first solver
                         # is set as the reference, its result to be the oracle.
                         oracle = result
@@ -409,15 +491,15 @@ class Fuzzer:
         return report
 
     def report_diff(
-        self,
-        script,
-        bugtype,
-        ref_cli,
-        ref_stdout,
-        ref_stderr,
-        sol_cli,
-        sol_stdout,
-        sol_stderr,
+            self,
+            script,
+            bugtype,
+            ref_cli,
+            ref_stdout,
+            ref_stderr,
+            sol_cli,
+            sol_stdout,
+            sol_stderr,
     ):
         plain_cli = plain(sol_cli)
         # format: <solver><{crash,wrong,invalid_model}><seed>.<random-str>.smt2
@@ -458,8 +540,8 @@ class Fuzzer:
         return report
 
     def print_stats(self):
-        if not self.first_status_bar_printed\
-           and time.time() - self.old_time >= 1:
+        if not self.first_status_bar_printed \
+                and time.time() - self.old_time >= 1:
             self.statistic.printbar(self.start_time)
             self.old_time = time.time()
             self.first_status_bar_printed = True

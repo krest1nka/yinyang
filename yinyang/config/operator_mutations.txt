@@ -30,7 +30,7 @@
 =,distinct
 exists,forall
 not -> and,or
-and,or,=> :arity 3+
+and,or :arity 3+
 and,or,=>,xor :arity 2
 <=,>=,<,>
 +,-,* :arity 2+
